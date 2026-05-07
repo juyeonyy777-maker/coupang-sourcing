@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>쿠팡 소싱 도구</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, 'Malgun Gothic', 'Segoe UI', sans-serif;
+      background: #0f0f1a; color: #e0e0e0; min-height: 100vh;
+    }
+    .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      padding: 28px 32px; border-radius: 16px; margin-bottom: 24px;
+    }
+    .header h1 { font-size: 24px; font-weight: 800; color: #fff; }
+    .header p { color: rgba(255,255,255,0.7); font-size: 13px; margin-top: 6px; }
+
+    .card {
+      background: #1a1a2e; border-radius: 12px; padding: 20px; margin-bottom: 16px;
+      border: 1px solid #2a2a4a;
+    }
+    .card h2 { font-size: 15px; font-weight: 700; margin-bottom: 12px; color: #a0a0ff; }
+
+    /* Steps */
+    .steps {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px;
+    }
+    .step {
+      background: #16213e; padding: 14px; border-radius: 10px; text-align: center;
+    }
+    .step .num { font-size: 28px; font-weight: 800; color: #00cec9; }
+    .step .desc { font-size: 11px; color: #aaa; margin-top: 6px; line-height: 1.4; }
+
+    /* Cookie */
+    .cookie-section { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .cookie-group label { display: block; font-size: 12px; color: #888; margin-bottom: 6px; }
+    .cookie-group textarea {
+      width: 100%; height: 60px; background: #0f0f23; border: 1px solid #333; color: #ccc;
+      border-radius: 8px; padding: 8px; font-size: 11px; resize: vertical;
+      font-family: 'Consolas', monospace;
+    }
+    .cookie-group textarea:focus { border-color: #667eea; outline: none; }
+    .cookie-help { font-size: 11px; color: #666; margin-top: 4px; }
+
+    /* Category */
+    .category-list { display: flex; flex-direction: column; gap: 8px; }
+    .category-item {
+      background: #16213e; padding: 12px 16px; border-radius: 8px;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .category-item .name { font-weight: 600; }
+    .badge { font-size: 11px; padding: 3px 10px; border-radius: 12px; font-weight: 600; }
+    .badge.waiting { background: #2d3436; color: #888; }
+    .badge.active { background: #fdcb6e33; color: #fdcb6e; }
+    .badge.done { background: #00b89433; color: #00b894; }
+    .badge.error { background: #d6303133; color: #ff7675; }
+
+    /* Progress */
+    .progress-bar { background: #16213e; border-radius: 6px; height: 8px; overflow: hidden; }
+    .progress-fill {
+      background: linear-gradient(90deg, #00b894, #00cec9, #0984e3);
+      height: 100%; width: 0%; transition: width 0.4s ease; border-radius: 6px;
+    }
+    .progress-text { font-size: 12px; color: #888; margin-top: 6px; text-align: center; }
+
+    /* Stats */
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0; }
+    .stat-box { background: #16213e; padding: 16px; border-radius: 10px; text-align: center; }
+    .stat-box .num { font-size: 28px; font-weight: 800; color: #00cec9; }
+    .stat-box .label { font-size: 11px; color: #888; margin-top: 4px; }
+
+    /* Buttons */
+    .btn-row { display: flex; gap: 12px; margin-top: 16px; }
+    .btn {
+      padding: 14px 28px; border: none; border-radius: 10px; font-size: 15px;
+      font-weight: 700; cursor: pointer; transition: all 0.2s; flex: 1; text-align: center;
+    }
+    .btn:hover { transform: translateY(-1px); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+    .btn-start { background: linear-gradient(135deg, #00b894, #00cec9); color: #fff; }
+    .btn-download { background: linear-gradient(135deg, #0984e3, #6c5ce7); color: #fff; }
+    .btn-stop { background: linear-gradient(135deg, #d63031, #e17055); color: #fff; }
+
+    /* Log */
+    .log-box {
+      background: #0a0a16; border: 1px solid #222; border-radius: 8px; padding: 12px;
+      font-family: 'Consolas', monospace; font-size: 11px; color: #888;
+      max-height: 200px; overflow-y: auto; white-space: pre-wrap; line-height: 1.6;
+    }
+    .log-box .info { color: #00cec9; }
+    .log-box .success { color: #00b894; }
+    .log-box .warn { color: #fdcb6e; }
+    .log-box .error { color: #ff7675; }
+
+    /* Table */
+    .table-wrap { overflow-x: auto; margin-top: 12px; max-height: 400px; overflow-y: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    thead th {
+      background: #16213e; padding: 10px 8px; text-align: left; font-weight: 600;
+      color: #a0a0ff; position: sticky; top: 0; white-space: nowrap;
+    }
+    tbody td {
+      padding: 8px; border-bottom: 1px solid #1a1a2e; max-width: 200px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    tbody tr:hover td { background: rgba(255,255,255,0.02); }
+
+    @media (max-width: 768px) {
+      .cookie-section { grid-template-columns: 1fr; }
+      .stats { grid-template-columns: repeat(2, 1fr); }
+      .steps { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>쿠팡 소싱 도구</h1>
+      <p>카테고리별 상품 데이터 + 조회수, 판매량, 전환율, 매출을 자동 수집합니다</p>
+    </div>
+
+    <!-- 사용법 -->
+    <div class="card">
+      <h2>사용법</h2>
+      <div class="steps">
+        <div class="step"><div class="num">1</div><div class="desc">쿠팡 쿠키 입력<br>(Access Denied 방지)</div></div>
+        <div class="step"><div class="num">2</div><div class="desc">쿠팡윙 쿠키 입력<br>(조회수/판매량 수집)</div></div>
+        <div class="step"><div class="num">3</div><div class="desc">"수집 시작" 클릭<br>(자동 수집)</div></div>
+        <div class="step"><div class="num">4</div><div class="desc">수집 완료 후<br>엑셀 다운로드</div></div>
+      </div>
+    </div>
+
+    <!-- 쿠키 설정 -->
+    <div class="card">
+      <h2>쿠키 설정</h2>
+      <p style="font-size:12px;color:#888;margin-bottom:12px;">
+        Chrome F12 > Application > Cookies 에서 복사하세요.
+        쿠팡윙 쿠키는 선택이지만 입력하면 조회수/판매량/매출 지표를 수집합니다.
+      </p>
+      <div class="cookie-section">
+        <div class="cookie-group">
+          <label>쿠팡 쿠키 (www.coupang.com) - 필수</label>
+          <textarea id="coupangCookies" placeholder="F12 > Application > Cookies > www.coupang.com 에서 전체 쿠키 문자열 붙여넣기"></textarea>
+          <div class="cookie-help">* 필수: Access Denied 방지용</div>
+        </div>
+        <div class="cookie-group">
+          <label>쿠팡윙 XSRF 토큰 (wing.coupang.com)</label>
+          <textarea id="wingXsrf" placeholder="wing.coupang.com 쿠키에서 XSRF-TOKEN 값" style="height:30px;"></textarea>
+          <label style="margin-top:8px;">쿠팡윙 쿠키 (wing.coupang.com)</label>
+          <textarea id="wingCookies" placeholder="wing.coupang.com 전체 쿠키 문자열"></textarea>
+          <div class="cookie-help">* 선택: 조회수/판매량/전환율/매출 지표 수집용</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 카테고리 -->
+    <div class="card">
+      <h2>수집 카테고리</h2>
+      <div class="category-list" id="categoryList"></div>
+    </div>
+
+    <!-- 수집 현황 -->
+    <div class="card">
+      <h2>수집 현황</h2>
+      <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+      <div class="progress-text" id="progressText">대기중</div>
+      <div class="stats">
+        <div class="stat-box"><div class="num" id="statTotal">0</div><div class="label">총 상품</div></div>
+        <div class="stat-box"><div class="num" id="statMetrics">0</div><div class="label">지표 포함</div></div>
+        <div class="stat-box"><div class="num" id="statPages">0</div><div class="label">수집 페이지</div></div>
+        <div class="stat-box"><div class="num" id="statCategories">0</div><div class="label">완료 카테고리</div></div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-start" id="btnStart" onclick="startCollection()">수집 시작</button>
+        <button class="btn btn-download" id="btnDownload" onclick="downloadExcel()" disabled>엑셀(CSV) 다운로드</button>
+      </div>
+    </div>
+
+    <!-- 로그 -->
+    <div class="card">
+      <h2>수집 로그</h2>
+      <div class="log-box" id="logBox"></div>
+    </div>
+
+    <!-- 결과 테이블 -->
+    <div class="card" id="resultsCard" style="display:none;">
+      <h2>수집 결과 <span id="resultCount" style="color:#00cec9;"></span></h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>카테고리</th><th>페이지</th><th>#</th><th>상품명</th><th>가격</th>
+              <th>별점</th><th>리뷰</th><th>로켓</th>
+              <th>조회수</th><th>판매량</th><th>전환율</th><th>매출</th>
+            </tr>
+          </thead>
+          <tbody id="resultsBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ===== 설정 =====
+    const CATEGORIES = [
+      { name: '생활용품 > 수납/정리', id: '184791' },
+      { name: '생활용품 > 주방수납/잡화', id: '186147' },
+    ];
+    const PAGES_PER_CAT = 4;
+
+    let allProducts = [];
+    let isRunning = false;
+
+    // ===== UI 초기화 =====
+    const catListEl = document.getElementById('categoryList');
+    CATEGORIES.forEach((cat, i) => {
+      catListEl.innerHTML += `
+        <div class="category-item" id="cat-${i}">
+          <span class="name">${cat.name}</span>
+          <span class="badge waiting" id="catBadge-${i}">대기</span>
+        </div>`;
+    });
+
+    // ===== 로그 =====
+    function log(msg, type = '') {
+      const el = document.getElementById('logBox');
+      const span = document.createElement('span');
+      span.className = type;
+      span.textContent = msg + '\n';
+      el.appendChild(span);
+      el.scrollTop = el.scrollHeight;
+    }
+
+    // ===== 서버에서 페이지 가져오기 =====
+    async function fetchPage(categoryId, page) {
+      const cookies = document.getElementById('coupangCookies').value.trim();
+      const resp = await fetch('/api/fetch-page', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ categoryId, page, cookies }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${resp.status}`);
+      }
+      return (await resp.json()).html;
+    }
+
+    // ===== 서버에서 HTML 파싱 =====
+    async function parseProducts(html, categoryName, page) {
+      const resp = await fetch('/api/parse-products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ html, categoryName, page }),
+      });
+      const data = await resp.json();
+      return data.products || [];
+    }
+
+    // ===== Wing API 지표 가져오기 =====
+    async function fetchWingMetrics(keyword) {
+      const wingCookies = document.getElementById('wingCookies').value.trim();
+      const xsrfToken = document.getElementById('wingXsrf').value.trim();
+      if (!wingCookies || !xsrfToken) return null;
+
+      try {
+        const resp = await fetch('/api/wing-metrics', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ keyword, wingCookies, xsrfToken }),
+        });
+        if (!resp.ok) return null;
+        return await resp.json();
+      } catch {
+        return null;
+      }
+    }
+
+    // ===== Wing 지표 매칭 =====
+    function matchMetrics(products, wingData) {
+      if (!wingData?.content) return 0;
+      let matched = 0;
+
+      const wingMap = new Map();
+      wingData.content.forEach(item => {
+        if (item.productId) wingMap.set(String(item.productId), item);
+        if (item.productName) wingMap.set(item.productName, item);
+      });
+
+      products.forEach(p => {
+        const w = wingMap.get(p['상품ID']) || wingMap.get(p['상품명']);
+        if (w) {
+          p['조회수'] = w.pvLast28Day?.toLocaleString() || '';
+          p['판매량'] = w.salesLast28d?.toLocaleString() || '';
+          p['브랜드'] = w.brandName || '';
+          if (w.pvLast28Day && w.salesLast28d) {
+            p['전환율'] = ((w.salesLast28d / w.pvLast28Day) * 100).toFixed(1) + '%';
+          }
+          if (w.salesLast28d && w.salePrice) {
+            p['매출'] = (w.salesLast28d * w.salePrice).toLocaleString() + '원';
+          }
+          matched++;
+        }
+      });
+      return matched;
+    }
+
+    // ===== 테이블 업데이트 =====
+    function updateTable() {
+      const card = document.getElementById('resultsCard');
+      card.style.display = 'block';
+      document.getElementById('resultCount').textContent = `(${allProducts.length}개)`;
+
+      const tbody = document.getElementById('resultsBody');
+      tbody.innerHTML = allProducts.map(p => `
+        <tr>
+          <td>${p['카테고리'] || ''}</td>
+          <td>${p['페이지'] || ''}</td>
+          <td>${p['순위'] || ''}</td>
+          <td title="${p['상품명'] || ''}">${(p['상품명'] || '').slice(0, 35)}${(p['상품명']||'').length > 35 ? '…' : ''}</td>
+          <td>${p['가격'] || '-'}</td>
+          <td>${p['별점'] || '-'}</td>
+          <td>${p['리뷰수'] || '-'}</td>
+          <td>${p['로켓배송'] || '-'}</td>
+          <td style="color:#0984e3">${p['조회수'] || '-'}</td>
+          <td style="color:#fdcb6e">${p['판매량'] || '-'}</td>
+          <td style="color:#00b894">${p['전환율'] || '-'}</td>
+          <td style="color:#e17055">${p['매출'] || '-'}</td>
+        </tr>
+      `).join('');
+    }
+
+    // ===== 엑셀 다운로드 =====
+    function downloadExcel() {
+      const headers = ['카테고리','페이지','순위','상품명','가격','할인율','별점','리뷰수',
+                       '상품ID','로켓배송','브랜드','조회수','판매량','전환율','매출','링크'];
+      const csvRows = [headers.join(',')];
+      allProducts.forEach(p => {
+        csvRows.push(headers.map(h => `"${(p[h]||'').toString().replace(/"/g,'""')}"`).join(','));
+      });
+
+      const d = new Date().toISOString().slice(0, 10);
+      const blob = new Blob(['\uFEFF' + csvRows.join('\n')], { type: 'text/csv;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `coupang_sourcing_${d}.csv`;
+      a.click();
+
+      const jblob = new Blob([JSON.stringify(allProducts, null, 2)], { type: 'application/json' });
+      const a2 = document.createElement('a');
+      a2.href = URL.createObjectURL(jblob);
+      a2.download = `coupang_sourcing_${d}.json`;
+      a2.click();
+
+      log('CSV + JSON 다운로드 완료!', 'success');
+    }
+
+    // ===== 메인 수집 =====
+    async function startCollection() {
+      if (isRunning) return;
+
+      const coupangCookies = document.getElementById('coupangCookies').value.trim();
+      if (!coupangCookies) {
+        alert('쿠팡 쿠키를 입력해주세요. (F12 > Application > Cookies)');
+        return;
+      }
+
+      isRunning = true;
+      allProducts = [];
+      const btnStart = document.getElementById('btnStart');
+      btnStart.disabled = true;
+      btnStart.textContent = '수집중...';
+      btnStart.className = 'btn btn-stop';
+
+      const hasWing = document.getElementById('wingCookies').value.trim() && document.getElementById('wingXsrf').value.trim();
+
+      const totalSteps = CATEGORIES.length * PAGES_PER_CAT;
+      let step = 0;
+      let doneCategories = 0;
+
+      log('=== 수집 시작 ===', 'info');
+      if (hasWing) {
+        log('쿠팡윙 쿠키 감지 → 조회수/판매량/매출 지표도 수집합니다', 'info');
+      } else {
+        log('쿠팡윙 쿠키 없음 → 기본 상품정보만 수집합니다', 'warn');
+      }
+
+      for (let ci = 0; ci < CATEGORIES.length; ci++) {
+        const cat = CATEGORIES[ci];
+        document.getElementById(`catBadge-${ci}`).textContent = '수집중...';
+        document.getElementById(`catBadge-${ci}`).className = 'badge active';
+        log(`\n▶ ${cat.name} 수집 시작`, 'info');
+
+        let catProducts = [];
+
+        for (let page = 1; page <= PAGES_PER_CAT; page++) {
+          step++;
+          const pct = Math.round((step / totalSteps) * 100);
+          document.getElementById('progressFill').style.width = pct + '%';
+          document.getElementById('progressText').textContent =
+            `${cat.name} - ${page}/${PAGES_PER_CAT}페이지 (${pct}%)`;
+
+          log(`  페이지 ${page} 수집중...`);
+
+          try {
+            // 1. 서버를 통해 쿠팡 페이지 가져오기
+            const html = await fetchPage(cat.id, page);
+            log(`  HTML 수신: ${(html.length/1024).toFixed(0)}KB`);
+
+            // 2. 서버에서 HTML 파싱
+            const products = await parseProducts(html, cat.name, page);
+
+            catProducts.push(...products);
+            allProducts.push(...products);
+            log(`  페이지 ${page}: ${products.length}개 수집 (누적 ${allProducts.length}개)`, 'success');
+
+            // 통계 업데이트
+            document.getElementById('statTotal').textContent = allProducts.length;
+            document.getElementById('statPages').textContent = step;
+
+            updateTable();
+
+            // 딜레이 (2~3초)
+            if (page < PAGES_PER_CAT || ci < CATEGORIES.length - 1) {
+              await new Promise(r => setTimeout(r, 2000 + Math.random() * 1000));
+            }
+
+          } catch (e) {
+            log(`  ✗ 페이지 ${page} 실패: ${e.message}`, 'error');
+
+            if (e.message.includes('403') || e.message.includes('Access')) {
+              if (!this._retries) this._retries = {};
+              const key = `${cat.id}_${page}`;
+              this._retries[key] = (this._retries[key] || 0) + 1;
+              if (this._retries[key] <= 2) {
+                log(`  → 5초 후 재시도 (${this._retries[key]}/2)...`, 'warn');
+                await new Promise(r => setTimeout(r, 5000));
+                page--;
+                step--;
+              } else {
+                log(`  → 403 에러 계속됨. 쿠키를 확인하세요! (Network 탭에서 Cookie 헤더 복사)`, 'error');
+              }
+            }
+          }
+        }
+
+        // Wing 지표 수집
+        if (hasWing && catProducts.length > 0) {
+          log(`  Wing 지표 수집중...`, 'info');
+          // 상품명 앞 3단어로 검색 키워드 생성
+          const searchTerms = [...new Set(
+            catProducts.map(p => p['상품명'].split(' ').slice(0, 3).join(' '))
+          )].slice(0, 10); // 카테고리당 최대 10번 검색
+
+          let totalMatched = 0;
+          for (const term of searchTerms) {
+            try {
+              const wingData = await fetchWingMetrics(term);
+              if (wingData) {
+                const matched = matchMetrics(catProducts, wingData);
+                totalMatched += matched;
+              }
+            } catch (e) {
+              log(`  Wing 검색 실패 (${term}): ${e.message}`, 'warn');
+            }
+            await new Promise(r => setTimeout(r, 500));
+          }
+
+          document.getElementById('statMetrics').textContent =
+            allProducts.filter(p => p['조회수']).length;
+
+          if (totalMatched > 0) {
+            log(`  Wing 지표 매칭: ${totalMatched}개`, 'success');
+            updateTable();
+          } else {
+            log(`  Wing 지표 매칭 없음 (쿠키/토큰 확인 필요)`, 'warn');
+          }
+        }
+
+        doneCategories++;
+        document.getElementById('statCategories').textContent = doneCategories;
+        document.getElementById(`catBadge-${ci}`).textContent = '완료';
+        document.getElementById(`catBadge-${ci}`).className = 'badge done';
+        log(`✓ ${cat.name} 완료 (${catProducts.length}개)`, 'success');
+      }
+
+      // 완료
+      document.getElementById('progressFill').style.width = '100%';
+      document.getElementById('progressText').textContent =
+        `수집 완료! 총 ${allProducts.length}개 상품`;
+
+      btnStart.textContent = '수집 완료!';
+      btnStart.className = 'btn btn-start';
+      document.getElementById('btnDownload').disabled = false;
+
+      const withMetrics = allProducts.filter(p => p['조회수']).length;
+      log(`\n=== 전체 수집 완료 ===`, 'success');
+      log(`총 상품: ${allProducts.length}개`, 'info');
+      log(`지표 포함: ${withMetrics}개`, 'info');
+      log(`"엑셀 다운로드" 버튼을 클릭하세요!`, 'info');
+
+      isRunning = false;
+    }
+
+    // 초기 로그
+    log('소싱 도구 준비 완료!', 'info');
+    log('수집 카테고리:', 'info');
+    CATEGORIES.forEach(c => log(`  - ${c.name}`));
+    log('\n쿠키를 입력하고 "수집 시작"을 클릭하세요.', 'info');
+    log('쿠팡윙 쿠키를 입력하면 조회수/판매량/매출까지 자동 수집됩니다.', 'info');
+  </script>
+</body>
+</html>
