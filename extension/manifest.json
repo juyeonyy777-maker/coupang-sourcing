@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "쿠팡 소싱 수집기",
+  "version": "1.1",
+  "description": "쿠팡 카테고리 상품 + 조회수/판매량/매출 자동 수집",
+  "permissions": ["cookies"],
+  "host_permissions": [
+    "http://localhost:8080/*",
+    "https://wing.coupang.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.coupang.com/np/categories/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
