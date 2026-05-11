@@ -90,19 +90,49 @@
       </div>
     </div>
 
+    <!-- 진행상황 -->
+    <div class="card" id="progressCard" style="display:none;">
+      <h2>수집 진행중</h2>
+      <div style="margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px;">
+          <span id="progCategory" style="color:#00cec9;font-weight:700;"></span>
+          <span id="progStep" style="color:#fdcb6e;"></span>
+        </div>
+        <div style="background:#16213e;border-radius:8px;height:24px;overflow:hidden;">
+          <div id="progBar" style="height:100%;background:linear-gradient(90deg,#0984e3,#6c5ce7);border-radius:8px;transition:width 0.3s;width:0%;"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:#888;margin-top:4px;">
+          <span id="progDetail"></span>
+          <span id="progPercent"></span>
+        </div>
+      </div>
+    </div>
+
     <!-- 수집 현황 -->
     <div class="card">
       <h2>수집 현황</h2>
       <div class="stats">
         <div class="stat-box"><div class="num" id="statTotal">0</div><div class="label">총 상품</div></div>
         <div class="stat-box"><div class="num" id="statMetrics">0</div><div class="label">지표 포함</div></div>
-        <div class="stat-box"><div class="num" id="statPages">0</div><div class="label">수집 페이지</div></div>
+        <div class="stat-box"><div class="num" id="statPages">0</div><div class="label">수집 건수</div></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;margin-top:12px;">
+        <label style="font-size:13px;color:#aaa;">최소 가격</label>
+        <input type="number" id="minPrice" value="9900" step="1000" min="0"
+          style="width:120px;padding:10px 12px;border-radius:8px;border:1px solid #2a2a4a;background:#16213e;color:#00cec9;font-size:15px;font-weight:700;text-align:right;"
+          oninput="updateUI()">
+        <span style="font-size:13px;color:#888;">원 이상만 표시</span>
       </div>
       <div class="btn-row">
         <button class="btn btn-refresh" onclick="refreshData()">새로고침</button>
         <button class="btn btn-download" id="btnDownload" onclick="downloadExcel()" disabled>엑셀(XLSX) 다운로드</button>
-        <button class="btn btn-clear" onclick="clearData()">초기화</button>
       </div>
+    </div>
+
+    <!-- 수집 기록 -->
+    <div class="card" id="sessionsCard" style="display:none;">
+      <h2>라이브러리</h2>
+      <div id="sessionsList" style="display:flex;flex-direction:column;gap:8px;"></div>
     </div>
 
     <!-- 결과 테이블 -->
@@ -122,34 +152,95 @@
     const COLUMNS = ['카테고리','순위','상품명','가격','별점','리뷰수',
                      '노출상품ID','로켓배송','옵션ID','브랜드','조회수','판매량','전환율','매출','링크'];
     let allProducts = [];
+    let sessions = [];
+    let selectedSessionId = null; // null = 전체 보기
 
     // 데이터 새로고침
     async function refreshData() {
       try {
-        const resp = await fetch('/api/data');
+        const url = selectedSessionId ? `/api/data?sessionId=${selectedSessionId}` : '/api/data';
+        const resp = await fetch(url);
         const data = await resp.json();
         allProducts = data.products;
+        sessions = data.sessions || [];
         updateUI();
       } catch (e) {
         console.error(e);
       }
     }
 
+    function parsePrice(p) {
+      const v = (p['가격'] || '').replace(/[^\d]/g, '');
+      return v ? parseInt(v) : 0;
+    }
+
+    function getFiltered() {
+      const min = parseInt(document.getElementById('minPrice').value) || 0;
+      if (min <= 0) return allProducts;
+      return allProducts.filter(p => parsePrice(p) >= min);
+    }
+
+    function formatTime(iso) {
+      const d = new Date(iso);
+      return d.toLocaleDateString('ko-KR', { month:'short', day:'numeric' })
+        + ' ' + d.toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' });
+    }
+
+    function selectSession(id) {
+      selectedSessionId = id;
+      refreshData();
+    }
+
+    async function deleteSession(id, e) {
+      e.stopPropagation();
+      const s = sessions.find(s => s.id === id);
+      if (!confirm(`"${s?.categoryName}" (${s?.products.length}개) 수집 기록을 삭제할까요?`)) return;
+      await fetch(`/api/session/${id}`, { method: 'DELETE' });
+      if (selectedSessionId === id) selectedSessionId = null;
+      refreshData();
+    }
+
     function updateUI() {
-      document.getElementById('statTotal').textContent = allProducts.length;
+      const filtered = getFiltered();
+
+      document.getElementById('statTotal').textContent = filtered.length;
       document.getElementById('statMetrics').textContent =
-        allProducts.filter(p => p['조회수']).length;
+        filtered.filter(p => p['조회수']).length;
+      document.getElementById('statPages').textContent = sessions.length;
 
-      const pages = new Set(allProducts.map(p => p['카테고리'] + '_' + (p['순위'] || '').split('-')[0]));
-      document.getElementById('statPages').textContent = pages.size;
+      document.getElementById('btnDownload').disabled = filtered.length === 0;
 
-      document.getElementById('btnDownload').disabled = allProducts.length === 0;
+      // 세션 목록
+      const sessionsCard = document.getElementById('sessionsCard');
+      const sessionsList = document.getElementById('sessionsList');
+      if (sessions.length > 0) {
+        sessionsCard.style.display = 'block';
+        sessionsList.innerHTML =
+          `<div onclick="selectSession(null)" style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700;background:${!selectedSessionId ? '#0984e3' : '#16213e'};color:${!selectedSessionId ? '#fff' : '#aaa'};border:1px solid ${!selectedSessionId ? '#0984e3' : '#2a2a4a'};">
+            <span>전체 보기</span>
+            <span style="color:${!selectedSessionId ? '#fff' : '#00cec9'};">${sessions.reduce((s,ss) => s + ss.products.length, 0)}개</span>
+          </div>` +
+          sessions.map(s => {
+            const active = selectedSessionId === s.id;
+            return `<div onclick="selectSession('${s.id}')" style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-radius:8px;cursor:pointer;font-size:13px;background:${active ? '#0984e3' : '#16213e'};color:${active ? '#fff' : '#e0e0e0'};border:1px solid ${active ? '#0984e3' : '#2a2a4a'};">
+              <div>
+                <div style="font-weight:700;">${s.categoryName}</div>
+                <div style="font-size:11px;color:${active ? 'rgba(255,255,255,0.7)' : '#888'};margin-top:2px;">${formatTime(s.timestamp)} · ${s.products.length}개</div>
+              </div>
+              <button onclick="deleteSession('${s.id}', event)" style="background:none;border:1px solid #ff767544;color:#ff7675;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:700;">삭제</button>
+            </div>`;
+          }).join('');
+      } else {
+        sessionsCard.style.display = 'none';
+      }
 
-      if (allProducts.length > 0) {
+      // 테이블
+      if (filtered.length > 0) {
         document.getElementById('resultsCard').style.display = 'block';
-        document.getElementById('resultCount').textContent = `(${allProducts.length}개)`;
+        const label = selectedSessionId ? '선택 세션' : '전체';
+        document.getElementById('resultCount').textContent = `(${filtered.length}개 / ${label} ${allProducts.length}개)`;
         document.getElementById('resultsHead').innerHTML = '<tr>' + COLUMNS.map(h => `<th>${h}</th>`).join('') + '</tr>';
-        document.getElementById('resultsBody').innerHTML = allProducts.map(p => '<tr>' + COLUMNS.map(h => {
+        document.getElementById('resultsBody').innerHTML = filtered.map(p => '<tr>' + COLUMNS.map(h => {
           let v = (p[h] || '').toString();
           if (h === '상품명') return `<td title="${v}">${v.slice(0, 35)}${v.length > 35 ? '...' : ''}</td>`;
           if (h === '링크' && v) return `<td><a href="${v}" target="_blank" style="color:#74b9ff;">링크</a></td>`;
@@ -163,7 +254,7 @@
     // 엑셀 다운로드
     function downloadExcel() {
       const LEFT_COLS = ['상품명', '링크'];
-      const rows = allProducts.map(p => {
+      const rows = getFiltered().map(p => {
         const row = {};
         COLUMNS.forEach(h => { row[h] = p[h] || ''; });
         return row;
@@ -171,7 +262,6 @@
 
       const ws = XLSX.utils.json_to_sheet(rows, { header: COLUMNS });
 
-      // 컬럼 너비 설정
       ws['!cols'] = COLUMNS.map(h => {
         if (h === '상품명') return { wch: 40 };
         if (h === '링크') return { wch: 50 };
@@ -179,7 +269,6 @@
         return { wch: 14 };
       });
 
-      // 셀 정렬: 상품명/링크는 왼쪽, 나머지 가운데
       const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
       for (let R = range.s.r; R <= range.e.r; R++) {
         for (let C = range.s.c; C <= range.e.c; C++) {
@@ -200,17 +289,40 @@
       XLSX.writeFile(wb, `coupang_sourcing_${d}.xlsx`);
     }
 
-    // 초기화
+    // 전체 초기화
     async function clearData() {
-      if (!confirm('수집 데이터를 모두 삭제할까요?')) return;
+      if (!confirm('모든 수집 기록을 삭제할까요?')) return;
       await fetch('/api/clear', { method: 'POST' });
       allProducts = [];
+      sessions = [];
+      selectedSessionId = null;
       updateUI();
     }
 
-    // 3초마다 자동 새로고침
-    setInterval(refreshData, 3000);
+    // 진행상황 폴링
+    async function checkProgress() {
+      try {
+        const resp = await fetch('/api/progress');
+        const p = await resp.json();
+        const card = document.getElementById('progressCard');
+        if (p && p.active) {
+          card.style.display = 'block';
+          document.getElementById('progCategory').textContent = p.category || '';
+          document.getElementById('progStep').textContent = p.step || '';
+          const catProg = ((p.categoryIndex - 1) * p.pageTotal + p.page) / (p.categoryTotal * p.pageTotal) * 100;
+          document.getElementById('progBar').style.width = Math.min(catProg, 100) + '%';
+          document.getElementById('progDetail').textContent = '카테고리 ' + p.categoryIndex + '/' + p.categoryTotal + ' · 페이지 ' + p.page + '/' + p.pageTotal;
+          document.getElementById('progPercent').textContent = Math.round(catProg) + '%';
+        } else {
+          card.style.display = 'none';
+        }
+      } catch (e) {}
+    }
+
+    // 2초마다 자동 새로고침 + 진행상황
+    setInterval(function() { refreshData(); checkProgress(); }, 2000);
     refreshData();
+    checkProgress();
   </script>
 </body>
 </html>

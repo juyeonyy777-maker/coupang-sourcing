@@ -2,19 +2,53 @@
 (function () {
   const K = '__cps__';
   const SERVER = 'http://localhost:8080';
-  const CATS = [
-    { n: '생활용품 > 수납/정리', id: '184791' },
-    { n: '생활용품 > 주방수납/잡화', id: '186147' },
-  ];
   const PP = 4;
-  const WAIT = 5000;
+  function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+  const WAIT = randInt(5000, 8000);
 
   console.log('[소싱] 익스텐션 로드됨: ' + location.href);
+
+  // ===== 하위 카테고리 자동 추출 =====
+  function findSubCategories() {
+    var cats = [];
+    var seen = {};
+    var currentId = (location.pathname.match(/categories\/(\d+)/) || [])[1];
+
+    // 전략: 사이드바에서 현재 카테고리(label.selected)의 펼쳐진 하위 목록 추출
+    var selectedLabel = document.querySelector('label.selected');
+    if (selectedLabel) {
+      var parentLi = selectedLabel.closest('li.filter-function-bar-category');
+      if (parentLi) {
+        // 펼쳐진 하위 카테고리 영역 (fw-block = 열림 상태)
+        var subList = parentLi.querySelector('.filter-function-bar-list.fw-block');
+        if (subList) {
+          var subLinks = subList.querySelectorAll('a[href*="/categories/"]');
+          for (var i = 0; i < subLinks.length; i++) {
+            var a = subLinks[i];
+            var href = a.getAttribute('href') || '';
+            var m = href.match(/categories\/(\d+)/);
+            if (!m) continue;
+            var id = m[1];
+            if (id === currentId) continue;
+            if (seen[id]) continue;
+            var name = a.textContent.trim();
+            if (!name || name.length < 2 || name.length > 50) continue;
+            seen[id] = true;
+            cats.push({ n: name, id: id });
+          }
+        }
+      }
+    }
+
+    console.log('[소싱] 하위 카테고리 ' + cats.length + '개: ' + cats.map(function(c){return c.n;}).join(', '));
+    return cats;
+  }
 
   // ===== 자동 수집 모드 =====
   var st = JSON.parse(sessionStorage.getItem(K) || 'null');
 
   if (st && st.running) {
+    var CATS = st.cats || [];
     var cat = CATS[st.ci];
     if (!cat) {
       console.log('[소싱] 자동수집 완료/오류 - 상태 초기화');
@@ -39,12 +73,100 @@
   wrap.id = 'sourcing-btns';
   wrap.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:99999;display:flex;flex-direction:column;gap:8px;align-items:flex-end;';
 
-  var btnAuto = makeButton('전체 자동 수집 v7', '#00b894', '18px');
+  // 하위 카테고리 탐색
+  var subCats = findSubCategories();
+
+  var btnAuto = makeButton(subCats.length > 0 ? '하위 카테고리 수집 (' + subCats.length + '개)' : '이 카테고리 수집', '#00b894', '16px');
   btnAuto.onclick = function () {
-    fetch(SERVER + '/api/clear', { method: 'POST' }).catch(function () {});
-    sessionStorage.setItem(K, JSON.stringify({ ci: 0, pg: 1, total: 0, running: true }));
-    location.href = '/np/categories/' + CATS[0].id + '?page=1&listSize=60&sorter=bestAsc&channel=user';
+    if (subCats.length === 0) {
+      var cats = [{ n: document.title.replace(/\s*[-|]\s*쿠팡.*$/, '').trim() || '현재카테고리', id: (location.pathname.match(/categories\/(\d+)/) || [])[1] }];
+      if (!cats[0].id) { alert('카테고리를 찾을 수 없습니다'); return; }
+      if (!confirm('이 카테고리를 수집할까요?')) return;
+      fetch(SERVER + '/api/new-session', { method: 'POST' }).catch(function () {});
+      sessionStorage.setItem(K, JSON.stringify({ ci: 0, pg: 1, total: 0, running: true, cats: cats }));
+      location.href = '/np/categories/' + cats[0].id + '?page=1&listSize=60&sorter=bestAsc&channel=user';
+      return;
+    }
+    // 체크박스 팝업
+    showCategoryPicker(subCats);
   };
+
+  function showCategoryPicker(cats) {
+    var existing = document.getElementById('sourcing-picker');
+    if (existing) existing.remove();
+
+    var overlay = document.createElement('div');
+    overlay.id = 'sourcing-picker';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:999999;display:flex;align-items:center;justify-content:center;';
+
+    var box = document.createElement('div');
+    box.style.cssText = 'background:#1a1a2e;border-radius:16px;padding:24px;max-width:500px;width:90%;max-height:80vh;overflow-y:auto;color:#e0e0e0;font-family:-apple-system,sans-serif;';
+
+    var title = document.createElement('div');
+    title.style.cssText = 'font-size:18px;font-weight:800;color:#00cec9;margin-bottom:16px;';
+    title.textContent = '수집할 카테고리 선택 (' + cats.length + '개)';
+    box.appendChild(title);
+
+    // 전체선택
+    var allLabel = document.createElement('label');
+    allLabel.style.cssText = 'display:flex;align-items:center;gap:8px;padding:10px 12px;background:#16213e;border-radius:8px;margin-bottom:8px;cursor:pointer;font-weight:700;color:#a0a0ff;font-size:14px;';
+    var allCheck = document.createElement('input');
+    allCheck.type = 'checkbox';
+    allCheck.checked = true;
+    allCheck.style.cssText = 'width:18px;height:18px;cursor:pointer;';
+    allLabel.appendChild(allCheck);
+    allLabel.appendChild(document.createTextNode('전체 선택/해제'));
+    box.appendChild(allLabel);
+
+    var checkboxes = [];
+    for (var i = 0; i < cats.length; i++) {
+      var label = document.createElement('label');
+      label.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid #2a2a4a;cursor:pointer;font-size:13px;';
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = true;
+      cb.dataset.idx = i;
+      cb.style.cssText = 'width:16px;height:16px;cursor:pointer;';
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(cats[i].n));
+      box.appendChild(label);
+      checkboxes.push(cb);
+    }
+
+    allCheck.onchange = function () {
+      for (var j = 0; j < checkboxes.length; j++) checkboxes[j].checked = allCheck.checked;
+    };
+
+    var btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex;gap:12px;margin-top:16px;';
+
+    var btnStart = document.createElement('button');
+    btnStart.textContent = '수집 시작';
+    btnStart.style.cssText = 'flex:1;padding:14px;border:none;border-radius:10px;font-size:15px;font-weight:700;background:#00b894;color:#fff;cursor:pointer;';
+    btnStart.onclick = function () {
+      var selected = [];
+      for (var j = 0; j < checkboxes.length; j++) {
+        if (checkboxes[j].checked) selected.push(cats[checkboxes[j].dataset.idx]);
+      }
+      if (selected.length === 0) { alert('최소 1개 카테고리를 선택하세요'); return; }
+      overlay.remove();
+      fetch(SERVER + '/api/new-session', { method: 'POST' }).catch(function () {});
+      sessionStorage.setItem(K, JSON.stringify({ ci: 0, pg: 1, total: 0, running: true, cats: selected }));
+      location.href = '/np/categories/' + selected[0].id + '?page=1&listSize=60&sorter=bestAsc&channel=user';
+    };
+
+    var btnCancel = document.createElement('button');
+    btnCancel.textContent = '취소';
+    btnCancel.style.cssText = 'flex:1;padding:14px;border:1px solid #555;border-radius:10px;font-size:15px;font-weight:700;background:transparent;color:#aaa;cursor:pointer;';
+    btnCancel.onclick = function () { overlay.remove(); };
+
+    btnRow.appendChild(btnStart);
+    btnRow.appendChild(btnCancel);
+    box.appendChild(btnRow);
+    overlay.appendChild(box);
+    overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+    document.body.appendChild(overlay);
+  }
 
   var btnPage = makeButton('이 페이지만 수집', '#555', '14px');
   btnPage.onclick = function () {
@@ -85,6 +207,20 @@
   async function doCollect(categoryName, pageNum, isAuto) {
     showFloat(categoryName + ' 수집중...', '#fdcb6e');
 
+    // 진행상황 전송
+    if (isAuto) {
+      var CATS = st.cats || [];
+      sendProgress({
+        active: true,
+        category: categoryName,
+        categoryIndex: st.ci + 1,
+        categoryTotal: CATS.length,
+        page: pageNum,
+        pageTotal: PP,
+        step: '스크랩중'
+      });
+    }
+
     // 1. 스크랩
     var products = scrape();
     products.forEach(function (p) {
@@ -95,12 +231,25 @@
 
     // 2. 상품 페이지에서 판매가 + 카테고리 수집
     if (products.length > 0) {
+      if (isAuto) sendProgress({ active: true, category: categoryName, categoryIndex: st.ci + 1, categoryTotal: (st.cats || []).length, page: pageNum, pageTotal: PP, step: '상품 상세 수집중 (' + products.length + '개)' });
       showFloat(products.length + '개 발견, 상품 상세 수집중...', '#fdcb6e');
       await fetchProductDetails(products);
     }
 
+    // 2-1. 9900원 미만 상품 제외
+    var beforeFilter = products.length;
+    products = products.filter(function (p) {
+      var priceNum = parseInt((p['가격'] || '').replace(/[^\d]/g, ''));
+      return priceNum >= 9900;
+    });
+    if (beforeFilter !== products.length) {
+      console.log('[소싱] 가격 필터: ' + beforeFilter + '개 → ' + products.length + '개 (9900원 미만 ' + (beforeFilter - products.length) + '개 제외)');
+      showFloat('가격 필터 적용: ' + products.length + '개 (9900원 미만 ' + (beforeFilter - products.length) + '개 제외)', '#fdcb6e');
+    }
+
     // 3. Wing 지표
     if (products.length > 0) {
+      if (isAuto) sendProgress({ active: true, category: categoryName, categoryIndex: st.ci + 1, categoryTotal: (st.cats || []).length, page: pageNum, pageTotal: PP, step: '지표 수집중 (' + products.length + '개)' });
       showFloat(products.length + '개 발견, 지표 수집중...', '#00cec9');
       await fetchMetrics(products);
     }
@@ -124,19 +273,27 @@
 
     // 자동 모드: 다음 페이지
     if (isAuto) {
+      var CATS = st.cats || [];
       st.total = (st.total || 0) + products.length;
       if (st.ci >= CATS.length - 1 && st.pg >= PP) {
         sessionStorage.removeItem(K);
-        showFloat('수집 완료! 총 ' + st.total + '개. localhost:8080에서 확인!', '#00b894', true);
+        sendProgress({ active: false });
+        showFloat('수집 완료! 총 ' + st.total + '개 (' + CATS.length + '개 카테고리). localhost:8080에서 확인!', '#00b894', true);
         return products.length;
       }
+      var prevCi = st.ci;
       if (st.pg < PP) { st.pg++; } else { st.ci++; st.pg = 1; }
+      // 카테고리가 바뀌면 새 세션 시작
+      if (st.ci !== prevCi) {
+        fetch(SERVER + '/api/new-session', { method: 'POST' }).catch(function(){});
+      }
       sessionStorage.setItem(K, JSON.stringify(st));
       var next = CATS[st.ci];
-      showFloat('3초 후 → ' + next.n + ' ' + st.pg + '페이지', '#00cec9');
+      var nextWait = randInt(5000, 10000);
+      showFloat(Math.round(nextWait/1000) + '초 후 → ' + next.n + ' ' + st.pg + '페이지 (' + (st.ci + 1) + '/' + CATS.length + ')', '#00cec9');
       setTimeout(function () {
         location.href = '/np/categories/' + next.id + '?page=' + st.pg + '&listSize=60&sorter=bestAsc&channel=user';
-      }, 3000);
+      }, nextWait);
     }
 
     return products.length;
@@ -318,32 +475,39 @@
     console.log('[소싱] 카테고리 완료: ' + success + '/' + products.length);
   }
 
-  // ===== 상품 페이지에서 판매가 + 카테고리 수집 =====
+  // ===== 순차 처리 (랜덤 딜레이) =====
+  async function runSequential(items, fn, minDelay, maxDelay) {
+    for (var i = 0; i < items.length; i++) {
+      await fn(items[i], i);
+      if (i < items.length - 1) await sleep(randInt(minDelay, maxDelay));
+    }
+  }
+
+  // ===== 진행상황 서버 전송 =====
+  function sendProgress(info) {
+    fetch(SERVER + '/api/progress', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(info)
+    }).catch(function(){});
+  }
+
+  // ===== 상품 페이지에서 판매가 + 카테고리 수집 (5개 병렬) =====
   async function fetchProductDetails(products) {
     console.log('[소싱] 상품 상세 수집: ' + products.length + '개');
     var success = 0;
-    for (var i = 0; i < products.length; i++) {
-      var p = products[i];
+    var done = 0;
+
+    async function processOne(p) {
       try {
         var resp = await fetch(p['링크']);
         var html = await resp.text();
 
-        // 디버그: 첫 상품 HTML을 서버로 전송
-        if (i === 0) {
-          fetch(SERVER + '/api/debug-html', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ html: html.substring(0, 15000) })
-          }).catch(function(){});
-        }
-
         // === 판매가 추출 (할인가 우선) ===
-        // 방법1: JSON-LD "Offer" 뒤의 price (할인가, priceSpecification 안의 원래가 무시)
         var offerPrice = html.match(/"@type"\s*:\s*"Offer"\s*,\s*"price"\s*:\s*"?(\d+)"?/);
         if (offerPrice) {
           var pNum = parseInt(offerPrice[1]);
           if (pNum > 0) p['가격'] = pNum.toLocaleString() + '원';
         }
-        // 방법2: HTML에서 할인가 (sale-price, total-price, discount-price)
         if (!p['가격']) {
           var salePriceMatch = html.match(/class="[^"]*(?:sale-price|total-price|discount-price)[^"]*"[^>]*>[\s]*(?:<[^>]+>)*[\s]*([\d,]+)[\s]*(?:<[^>]+>)*[\s]*원/i);
           if (salePriceMatch) {
@@ -351,7 +515,6 @@
             if (pNum > 0) p['가격'] = pNum.toLocaleString() + '원';
           }
         }
-        // 방법3: meta tag (최후 수단)
         if (!p['가격']) {
           var metaPrice = html.match(/<meta[^>]*property="product:price:amount"[^>]*content="(\d+)"/);
           if (metaPrice) {
@@ -360,9 +523,8 @@
           }
         }
 
-        // === 상세 카테고리 추출 (항상 덮어쓰기) ===
+        // === 상세 카테고리 추출 ===
         var detailedCat = '';
-        // 방법1: JSON-LD BreadcrumbList
         var bcJson = html.match(/"@type"\s*:\s*"BreadcrumbList"[\s\S]*?"itemListElement"\s*:\s*\[([\s\S]*?)\]/);
         if (bcJson && bcJson[1]) {
           var names = bcJson[1].match(/"name"\s*:\s*"([^"]+)"/g);
@@ -372,7 +534,6 @@
             if (cats.length > 0) detailedCat = cats.join(' > ');
           }
         }
-        // 방법2: HTML breadcrumb (폴백)
         if (!detailedCat) {
           var bcHtml = html.match(/breadcrumb[^>]*>([\s\S]*?)<\/(?:ul|ol|nav|div)/i);
           if (bcHtml) {
@@ -385,17 +546,17 @@
           }
         }
         if (detailedCat) p['카테고리'] = detailedCat;
-
         if (p['가격']) success++;
       } catch (e) {
         console.error('[소싱] 상세 실패 (' + p['노출상품ID'] + '):', e.message);
       }
-      if (i < products.length - 1) await sleep(200);
-      if ((i + 1) % 10 === 0) {
-        console.log('[소싱] 상세: ' + (i + 1) + '/' + products.length + ' (성공 ' + success + ')');
-        showFloat('상품 상세 수집중... ' + (i + 1) + '/' + products.length, '#fdcb6e');
+      done++;
+      if (done % 5 === 0 || done === products.length) {
+        showFloat('상품 상세 ' + done + '/' + products.length, '#fdcb6e');
       }
     }
+
+    await runSequential(products, processOne, 1000, 3000);
     console.log('[소싱] 상세 완료: ' + success + '/' + products.length);
   }
 
@@ -438,9 +599,8 @@
           await sleep(3000);
         }
       }
-      if (i < products.length - 1) await sleep(500);
-      if ((i + 1) % 10 === 0) {
-        console.log('[소싱] Wing: ' + (i + 1) + '/' + products.length + ' (성공 ' + success + ')');
+      if (i < products.length - 1) await sleep(randInt(1000, 2000));
+      if ((i + 1) % 5 === 0 || i === products.length - 1) {
         showFloat('지표 수집중... ' + (i + 1) + '/' + products.length, '#00cec9');
       }
     }
@@ -473,6 +633,27 @@
     b.style.cssText = 'position:fixed;top:20px;right:20px;z-index:99999;padding:12px 24px;font-size:16px;font-weight:800;background:#d63031;color:#fff;border:none;border-radius:10px;cursor:pointer;';
     b.onclick = function () { sessionStorage.removeItem(K); location.reload(); };
     document.body.appendChild(b);
+  }
+
+  // ===== Access Denied 감지 & 복구 알림 =====
+  if (document.title.indexOf('Access Denied') > -1 || document.body.textContent.indexOf('Access Denied') > -1) {
+    console.log('[소싱] Access Denied 감지 - 1분마다 복구 확인');
+    var checkUrl = '/np/categories/184791';
+    var checkInterval = setInterval(function () {
+      fetch(checkUrl, { method: 'HEAD' }).then(function (resp) {
+        if (resp.ok) {
+          clearInterval(checkInterval);
+          showFloat('차단 해제됨! 페이지를 새로고침하세요.', '#00b894', true);
+          if (Notification.permission === 'granted') {
+            new Notification('쿠팡 차단 해제!', { body: '다시 수집할 수 있습니다.' });
+          }
+          alert('쿠팡 차단이 해제되었습니다! 페이지를 새로고침하세요.');
+        }
+      }).catch(function () {});
+    }, 60000);
+    // 알림 권한 요청
+    if (Notification.permission === 'default') Notification.requestPermission();
+    showFloat('Access Denied - 1분마다 복구 확인중...', '#ff7675', true);
   }
 
   function showFloat(msg, color, persistent) {
