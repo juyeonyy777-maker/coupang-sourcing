@@ -100,7 +100,7 @@
       </div>
       <div class="btn-row">
         <button class="btn btn-refresh" onclick="refreshData()">새로고침</button>
-        <button class="btn btn-download" id="btnDownload" onclick="downloadExcel()" disabled>엑셀(CSV) 다운로드</button>
+        <button class="btn btn-download" id="btnDownload" onclick="downloadExcel()" disabled>엑셀(XLSX) 다운로드</button>
         <button class="btn btn-clear" onclick="clearData()">초기화</button>
       </div>
     </div>
@@ -117,9 +117,10 @@
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
   <script>
     const COLUMNS = ['카테고리','순위','상품명','가격','별점','리뷰수',
-                     '상품ID','로켓배송','옵션ID','브랜드','조회수','판매량','전환율','매출','링크'];
+                     '노출상품ID','로켓배송','옵션ID','브랜드','조회수','판매량','전환율','매출','링크'];
     let allProducts = [];
 
     // 데이터 새로고침
@@ -161,22 +162,42 @@
 
     // 엑셀 다운로드
     function downloadExcel() {
-      const csvRows = [COLUMNS.join(',')];
-      allProducts.forEach(p => {
-        csvRows.push(COLUMNS.map(h => {
-          let v = (p[h]||'').toString().replace(/"/g,'""');
-          // Excel 자동변환 방지 (="값" 수식으로 텍스트 강제)
-          if (/^\d{8,}$/.test(v) || /^\d+-\d+$/.test(v)) return `"=""${v}"""`;
-          return `"${v}"`;
-        }).join(','));
+      const LEFT_COLS = ['상품명', '링크'];
+      const rows = allProducts.map(p => {
+        const row = {};
+        COLUMNS.forEach(h => { row[h] = p[h] || ''; });
+        return row;
       });
 
+      const ws = XLSX.utils.json_to_sheet(rows, { header: COLUMNS });
+
+      // 컬럼 너비 설정
+      ws['!cols'] = COLUMNS.map(h => {
+        if (h === '상품명') return { wch: 40 };
+        if (h === '링크') return { wch: 50 };
+        if (h === '카테고리') return { wch: 30 };
+        return { wch: 14 };
+      });
+
+      // 셀 정렬: 상품명/링크는 왼쪽, 나머지 가운데
+      const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+      for (let R = range.s.r; R <= range.e.r; R++) {
+        for (let C = range.s.c; C <= range.e.c; C++) {
+          const addr = XLSX.utils.encode_cell({ r: R, c: C });
+          if (!ws[addr]) continue;
+          const colName = COLUMNS[C];
+          const isLeft = LEFT_COLS.includes(colName);
+          ws[addr].s = {
+            alignment: { horizontal: isLeft ? 'left' : 'center', vertical: 'center' },
+            font: R === 0 ? { bold: true } : {}
+          };
+        }
+      }
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, '소싱데이터');
       const d = new Date().toISOString().slice(0, 10);
-      const blob = new Blob(['\uFEFF' + csvRows.join('\n')], { type: 'text/csv;charset=utf-8' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `coupang_sourcing_${d}.csv`;
-      a.click();
+      XLSX.writeFile(wb, `coupang_sourcing_${d}.xlsx`);
     }
 
     // 초기화
