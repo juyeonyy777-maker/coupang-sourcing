@@ -1,3 +1,25 @@
+// ===== 자동 리로드 (파일 변경 감지) =====
+let lastVersion = null;
+
+// Service Worker 비활성화 방지
+chrome.alarms.create('keepAlive', { periodInMinutes: 1 });
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'keepAlive') checkVersion();
+});
+
+async function checkVersion() {
+  try {
+    const resp = await fetch('http://localhost:8080/api/ext-version');
+    const data = await resp.json();
+    if (lastVersion && lastVersion !== data.version) {
+      console.log('[소싱] 파일 변경 감지, 익스텐션 리로드!');
+      chrome.runtime.reload();
+    }
+    lastVersion = data.version;
+  } catch (e) {}
+}
+setInterval(checkVersion, 2000);
+
 // ===== Wing API 호출 (Service Worker) =====
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {

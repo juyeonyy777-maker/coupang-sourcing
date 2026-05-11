@@ -39,7 +39,7 @@
   wrap.id = 'sourcing-btns';
   wrap.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:99999;display:flex;flex-direction:column;gap:8px;align-items:flex-end;';
 
-  var btnAuto = makeButton('전체 자동 수집', '#00b894', '18px');
+  var btnAuto = makeButton('전체 자동 수집 v7', '#00b894', '18px');
   btnAuto.onclick = function () {
     fetch(SERVER + '/api/clear', { method: 'POST' }).catch(function () {});
     sessionStorage.setItem(K, JSON.stringify({ ci: 0, pg: 1, total: 0, running: true }));
@@ -52,7 +52,24 @@
     var catId = (location.pathname.match(/categories\/(\d+)/) || [])[1] || '';
     var found = null;
     for (var i = 0; i < CATS.length; i++) { if (CATS[i].id === catId) found = CATS[i]; }
-    var name = found ? found.n : document.title.replace(/ - 쿠팡!?$/, '');
+    var name = '';
+    if (found) {
+      name = found.n;
+    } else {
+      // h1, h2 등 페이지 제목 요소에서 카테고리명 추출
+      var headingEl = document.querySelector('h1, .title, #category-title, [class*="category"] > h1, [class*="category"] > h2');
+      if (headingEl) {
+        var ht = headingEl.textContent.trim();
+        if (ht.length > 1 && ht.length < 50) name = ht;
+      }
+      if (!name) {
+        // 페이지 제목에서 " - 쿠팡" 앞부분만 사용
+        name = document.title.replace(/\s*[-|]\s*쿠팡.*$/, '').trim();
+        // 서브카테고리 목록 제거 (첫 카테고리만)
+        if (name.length > 30) name = name.split(/[,]/)[0].trim();
+      }
+    }
+    if (!name) name = '미분류';
     var pg = parseInt(new URLSearchParams(location.search).get('page')) || 1;
     doCollect(name, pg, false).then(function (count) {
       btnPage.textContent = '완료! ' + count + '개';
@@ -70,10 +87,19 @@
 
     // 1. 스크랩
     var products = scrape();
-    products.forEach(function (p) { p['카테고리'] = categoryName; p['페이지'] = pageNum; });
+    products.forEach(function (p) {
+      p['카테고리'] = categoryName;
+      p['순위'] = pageNum + '-' + p['순위'];
+    });
     console.log('[소싱] 수집: ' + products.length + '개');
 
-    // 2. Wing 지표
+    // 2. 상품 페이지에서 판매가 + 카테고리 수집
+    if (products.length > 0) {
+      showFloat(products.length + '개 발견, 상품 상세 수집중...', '#fdcb6e');
+      await fetchProductDetails(products);
+    }
+
+    // 3. Wing 지표
     if (products.length > 0) {
       showFloat(products.length + '개 발견, 지표 수집중...', '#00cec9');
       await fetchMetrics(products);
@@ -158,40 +184,34 @@
         }
       }
       if (!name || name.length < 3) continue;
-      // 상품명에서 가격/퍼센트 이후 제거
+      // 상품명 정리: 가격/퍼센트 이후 제거
       name = name.replace(/\d+%[\s\S]*$/, '').replace(/[\d,]+원[\s\S]*$/, '').trim();
+      // "할인" 포함 단어 모두 제거 (쿠폰할인, 블랙쿠폰할인, 와우할인, 할인특가 등)
+      name = name.replace(/\S*할인\S*/g, '').trim();
+      // 기타 배지/태그 제거
+      name = name.replace(/(로켓와우|판매자\s*추천|다른\s*고객이\s*많이\s*본\s*상품|BEST|Best|best|광고|AD|ad|무료배송|로켓배송|로켓직구|로켓프레시)/g, '').trim();
+      // 정리: 앞뒤 쉼표, 다중 공백 제거
+      name = name.replace(/^[\s,]+|[\s,]+$/g, '').replace(/\s{2,}/g, ' ').trim();
       if (!name || name.length < 3) continue;
 
       // li의 전체 텍스트에서 정보 추출
       var fullText = li ? li.textContent : a.textContent;
 
-      // 가격: 할인가 추출 (1개당/1매당 가격 제외)
-      var price = '';
-      // "1개당", "1매당" 등 단위가격 제거한 텍스트에서 추출
-      var priceText = fullText.replace(/\(?\d개당[\s\d,원]+\)?/g, '').replace(/\(?\d매당[\s\d,원]+\)?/g, '');
-      var priceMatches = priceText.match(/([\d,]+)원/g);
-      if (priceMatches && priceMatches.length > 0) {
-        var prices = priceMatches.map(function(p) {
-          return { text: p, num: parseInt(p.replace(/[,원]/g, '')) };
-        }).filter(function(p) { return p.num >= 100; });
-        // 할인가 = 가격 목록 중 두번째 (첫번째가 원가, 두번째가 할인가)
-        // 가격이 1개면 그게 판매가
-        if (prices.length >= 2) {
-          price = prices[1].text; // 두번째가 할인가
-        } else if (prices.length === 1) {
-          price = prices[0].text;
-        }
-      }
-
-      // 별점: 소수점 포함 숫자 (예: 4.5)
+      // 별점: 숫자 (예: 4.5, 4.0, 4)
       var rating = '';
-      var allEls = (li || a).querySelectorAll('*');
-      for (var ri = 0; ri < allEls.length; ri++) {
-        var rt = allEls[ri].textContent.trim();
-        // 직접 자식 텍스트만 확인 (중첩 방지)
-        if (allEls[ri].children.length === 0 && /^\d\.\d$/.test(rt)) {
-          rating = rt;
-          break;
+      var ratingEl = (li || a).querySelector('[class*="rating"], [class*="star"], .star-score, .rating');
+      if (ratingEl) {
+        var rm = ratingEl.textContent.match(/(\d(?:\.\d)?)/);
+        if (rm) rating = rm[1];
+      }
+      if (!rating) {
+        var allEls = (li || a).querySelectorAll('*');
+        for (var ri = 0; ri < allEls.length; ri++) {
+          var rt = allEls[ri].textContent.trim();
+          if (allEls[ri].children.length === 0 && /^\d(\.\d)?$/.test(rt) && parseFloat(rt) <= 5) {
+            rating = rt;
+            break;
+          }
         }
       }
 
@@ -208,11 +228,6 @@
         if (revNums.length > 0) reviews = revNums[0].text;
       }
 
-      // 할인율
-      var discount = '';
-      var discMatch = fullText.match(/(\d+)%/);
-      if (discMatch) discount = discMatch[1] + '%';
-
       // 로켓배송
       var rocket = 'N';
       var liHtml = li ? li.innerHTML : a.innerHTML;
@@ -226,11 +241,18 @@
         vendorItemId = url.searchParams.get('vendorItemId') || '';
       } catch (e) {}
 
+      // 디버그: 첫 상품의 실제 텍스트를 서버로 전송
+      if (products.length === 0) {
+        fetch(SERVER + '/api/debug-html', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ html: '=== a.textContent ===\n' + aText.substring(0, 500) + '\n=== name ===\n' + name + '\n=== price ===\n' + price + '\n=== priceMatches ===\n' + JSON.stringify(priceMatches) })
+        }).catch(function(){});
+      }
+
       products.push({
         '순위': products.length + 1,
         '상품명': name.slice(0, 200),
-        '가격': price,
-        '할인율': discount,
+        '가격': '',
         '별점': rating,
         '리뷰수': reviews,
         '상품ID': pid,
@@ -238,7 +260,6 @@
         '_vendorItemId': vendorItemId,
         '링크': href.startsWith('http') ? href : location.origin + href,
         '로켓배송': rocket,
-        '노출상품ID': '',
         '옵션ID': '',
         '브랜드': '',
         '조회수': '',
@@ -252,20 +273,141 @@
     return products;
   }
 
+  // ===== 실제 카테고리 수집 =====
+  async function fetchCategories(products) {
+    console.log('[소싱] 카테고리 수집: ' + products.length + '개');
+    var success = 0;
+    for (var i = 0; i < products.length; i++) {
+      var p = products[i];
+      try {
+        var resp = await fetch(p['링크']);
+        var html = await resp.text();
+        // 방법1: JSON-LD BreadcrumbList
+        var jsonMatch = html.match(/"@type"\s*:\s*"BreadcrumbList"[\s\S]*?"itemListElement"\s*:\s*\[([\s\S]*?)\]/);
+        if (jsonMatch) {
+          var names = jsonMatch[1].match(/"name"\s*:\s*"([^"]+)"/g);
+          if (names) {
+            var cats = names.map(function(n) { return n.replace(/"name"\s*:\s*"/, '').replace(/"$/, ''); })
+              .filter(function(n) { return n !== '쿠팡 홈' && n !== '홈'; });
+            if (cats.length > 0) { p['카테고리'] = cats.join(' > '); success++; continue; }
+          }
+        }
+        // 방법2: HTML에서 breadcrumb 텍스트 추출
+        var bcMatch = html.match(/breadcrumb[^>]*>([\s\S]*?)<\/(?:ul|ol|nav|div)/i);
+        if (bcMatch) {
+          var linkTexts = bcMatch[1].match(/>([^<]+)</g);
+          if (linkTexts) {
+            var cats = linkTexts.map(function(t) { return t.replace(/^>/, '').replace(/<$/, '').trim(); })
+              .filter(function(t) { return t.length > 1 && t !== '쿠팡 홈' && t !== '홈' && !/^\s*[>›»]\s*$/.test(t); });
+            if (cats.length > 0) { p['카테고리'] = cats.join(' > '); success++; continue; }
+          }
+        }
+      } catch (e) {
+        console.error('[소싱] 카테고리 실패 (' + p['상품ID'] + '):', e.message);
+      }
+      if (i < products.length - 1) await sleep(200);
+      if ((i + 1) % 10 === 0) {
+        console.log('[소싱] 카테고리: ' + (i + 1) + '/' + products.length + ' (성공 ' + success + ')');
+        showFloat('카테고리 수집중... ' + (i + 1) + '/' + products.length, '#fdcb6e');
+      }
+    }
+    console.log('[소싱] 카테고리 완료: ' + success + '/' + products.length);
+  }
+
+  // ===== 상품 페이지에서 판매가 + 카테고리 수집 =====
+  async function fetchProductDetails(products) {
+    console.log('[소싱] 상품 상세 수집: ' + products.length + '개');
+    var success = 0;
+    for (var i = 0; i < products.length; i++) {
+      var p = products[i];
+      try {
+        var resp = await fetch(p['링크']);
+        var html = await resp.text();
+
+        // 디버그: 첫 상품 HTML을 서버로 전송
+        if (i === 0) {
+          fetch(SERVER + '/api/debug-html', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ html: html.substring(0, 15000) })
+          }).catch(function(){});
+        }
+
+        // === 판매가 추출 ===
+        // 방법1: JSON-LD Product.offers.price
+        var productJson = html.match(/"@type"\s*:\s*"Product"[\s\S]*?"offers"\s*:\s*\{[\s\S]*?"price"\s*:\s*"?(\d+)"?/);
+        if (productJson) {
+          var pNum = parseInt(productJson[1]);
+          if (pNum > 0) p['가격'] = pNum.toLocaleString() + '원';
+        }
+        // 방법2: HTML에서 큰 빨간 판매가 (salePrice, total-price 등)
+        if (!p['가격']) {
+          var salePriceMatch = html.match(/class="[^"]*(?:sale-price|total-price|discount-price)[^"]*"[^>]*>[\s]*(?:<[^>]+>)*[\s]*([\d,]+)[\s]*(?:<[^>]+>)*[\s]*원/i);
+          if (salePriceMatch) {
+            var pNum = parseInt(salePriceMatch[1].replace(/,/g, ''));
+            if (pNum > 0) p['가격'] = pNum.toLocaleString() + '원';
+          }
+        }
+        // 방법3: meta tag
+        if (!p['가격']) {
+          var metaPrice = html.match(/<meta[^>]*property="product:price:amount"[^>]*content="(\d+)"/);
+          if (metaPrice) {
+            var pNum = parseInt(metaPrice[1]);
+            if (pNum > 0) p['가격'] = pNum.toLocaleString() + '원';
+          }
+        }
+
+        // === 카테고리 추출 ===
+        // 방법1: JSON-LD BreadcrumbList
+        var bcJson = html.match(/"@type"\s*:\s*"BreadcrumbList"[\s\S]*?"itemListElement"\s*:\s*\[([\s\S]*?)\]/);
+        if (bcJson) {
+          var names = bcJson[1].match(/"name"\s*:\s*"([^"]+)"/g);
+          if (names) {
+            var cats = names.map(function(n) { return n.replace(/"name"\s*:\s*"/, '').replace(/"$/, ''); })
+              .filter(function(n) { return n !== '쿠팡 홈' && n !== '홈'; });
+            if (cats.length > 0) p['카테고리'] = cats.join(' > ');
+          }
+        }
+        // 방법2: HTML breadcrumb
+        if (!p['카테고리'] || p['카테고리'] === categoryName) {
+          var bcHtml = html.match(/breadcrumb[^>]*>([\s\S]*?)<\/(?:ul|ol|nav|div)/i);
+          if (bcHtml) {
+            var linkTexts = bcHtml[1].match(/>([^<]+)</g);
+            if (linkTexts) {
+              var cats = linkTexts.map(function(t) { return t.replace(/^>/, '').trim(); })
+                .filter(function(t) { return t.length > 1 && t !== '쿠팡 홈' && t !== '홈' && !/^\s*[>›»]\s*$/.test(t); });
+              if (cats.length > 0) p['카테고리'] = cats.join(' > ');
+            }
+          }
+        }
+
+        if (p['가격']) success++;
+      } catch (e) {
+        console.error('[소싱] 상세 실패 (' + p['상품ID'] + '):', e.message);
+      }
+      if (i < products.length - 1) await sleep(200);
+      if ((i + 1) % 10 === 0) {
+        console.log('[소싱] 상세: ' + (i + 1) + '/' + products.length + ' (성공 ' + success + ')');
+        showFloat('상품 상세 수집중... ' + (i + 1) + '/' + products.length, '#fdcb6e');
+      }
+    }
+    console.log('[소싱] 상세 완료: ' + success + '/' + products.length);
+  }
+
   // ===== Wing 지표 =====
   async function fetchMetrics(products) {
-    var targets = products.filter(function (p) { return p['_itemId']; });
-    console.log('[소싱] Wing API: ' + targets.length + '/' + products.length + '개 (itemId 있음)');
+    console.log('[소싱] Wing API: ' + products.length + '개');
 
     var success = 0;
-    for (var i = 0; i < targets.length; i++) {
-      var p = targets[i];
+    for (var i = 0; i < products.length; i++) {
+      var p = products[i];
+      var keyword = p['_itemId'] || p['상품ID'];
+      if (!keyword) continue;
       try {
-        var data = await sendMessage({ type: 'wing-metrics', keyword: p['_itemId'] });
+        var data = await sendMessage({ type: 'wing-metrics', keyword: keyword });
         var results = data.content || data.result || [];
         var match = null;
         for (var j = 0; j < results.length; j++) {
-          if (String(results[j].itemId) === p['_itemId']) { match = results[j]; break; }
+          if (String(results[j].itemId) === p['_itemId'] || String(results[j].productId) === p['상품ID']) { match = results[j]; break; }
         }
         if (!match && results.length > 0) match = results[0];
 
@@ -275,7 +417,6 @@
           p['전환율'] = (match.pvLast28Day && match.salesLast28d) ? ((match.salesLast28d / match.pvLast28Day) * 100).toFixed(2) + '%' : '';
           p['매출'] = (match.salesLast28d && match.salePrice) ? Math.round(match.salesLast28d * match.salePrice).toLocaleString() + '원' : '';
           p['브랜드'] = match.brandName || '';
-          p['노출상품ID'] = match.exposureProductId ? String(match.exposureProductId) : '';
           p['옵션ID'] = match.vendorItemId ? String(match.vendorItemId) : '';
           success++;
         }
@@ -287,10 +428,13 @@
           break;
         }
       }
-      if (i < targets.length - 1) await sleep(200);
-      if ((i + 1) % 10 === 0) console.log('[소싱] Wing: ' + (i + 1) + '/' + targets.length + ' (성공 ' + success + ')');
+      if (i < products.length - 1) await sleep(200);
+      if ((i + 1) % 10 === 0) {
+        console.log('[소싱] Wing: ' + (i + 1) + '/' + products.length + ' (성공 ' + success + ')');
+        showFloat('지표 수집중... ' + (i + 1) + '/' + products.length, '#00cec9');
+      }
     }
-    console.log('[소싱] Wing 완료: ' + success + '/' + targets.length);
+    console.log('[소싱] Wing 완료: ' + success + '/' + products.length);
   }
 
   function sendMessage(msg) {

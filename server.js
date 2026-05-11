@@ -1,7 +1,26 @@
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 const app = express();
 const PORT = 8080;
+
+// 익스텐션 파일 변경 감지 → 자동 리로드용 버전 (폴링 방식, WSL2 호환)
+let extVersion = Date.now();
+let lastMtimes = {};
+setInterval(() => {
+  const extDir = path.join(__dirname, 'extension');
+  try {
+    const files = fs.readdirSync(extDir);
+    files.forEach(f => {
+      const mtime = fs.statSync(path.join(extDir, f)).mtimeMs;
+      if (lastMtimes[f] && lastMtimes[f] !== mtime) {
+        extVersion = Date.now();
+        console.log('  익스텐션 파일 변경 감지: ' + f + ' → v' + extVersion);
+      }
+      lastMtimes[f] = mtime;
+    });
+  } catch (e) {}
+}, 1000);
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
@@ -28,7 +47,6 @@ app.post('/api/collect', (req, res) => {
   // 카테고리/페이지 정보 추가
   products.forEach(p => {
     p['카테고리'] = categoryName || '';
-    p['페이지'] = page || 1;
   });
 
   allProducts.push(...products);
@@ -40,6 +58,22 @@ app.post('/api/collect', (req, res) => {
 // 수집 데이터 조회
 app.get('/api/data', (req, res) => {
   res.json({ products: allProducts, total: allProducts.length });
+});
+
+// 익스텐션 버전 (자동 리로드용)
+app.get('/api/ext-version', (req, res) => {
+  res.json({ version: extVersion });
+});
+
+// 디버그: 상품 카드 HTML 수신
+app.post('/api/debug-html', (req, res) => {
+  const { html } = req.body;
+  if (html) {
+    const fs = require('fs');
+    fs.writeFileSync('debug-card.html', html);
+    console.log('  디버그 HTML 저장됨 (debug-card.html)');
+  }
+  res.json({ ok: true });
 });
 
 // 데이터 초기화

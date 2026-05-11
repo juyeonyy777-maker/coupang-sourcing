@@ -3,7 +3,7 @@
   "name": "쿠팡 소싱 수집기",
   "version": "1.1",
   "description": "쿠팡 카테고리 상품 + 조회수/판매량/매출 자동 수집",
-  "permissions": ["cookies"],
+  "permissions": ["cookies", "alarms"],
   "host_permissions": [
     "http://localhost:8080/*",
     "https://wing.coupang.com/*"
