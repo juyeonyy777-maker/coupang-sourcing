@@ -599,7 +599,7 @@
           await sleep(3000);
         }
       }
-      if (i < products.length - 1) await sleep(randInt(1000, 2000));
+      if (i < products.length - 1) await sleep(randInt(2000, 4000));
       if ((i + 1) % 5 === 0 || i === products.length - 1) {
         showFloat('지표 수집중... ' + (i + 1) + '/' + products.length, '#00cec9');
       }
@@ -635,25 +635,46 @@
     document.body.appendChild(b);
   }
 
-  // ===== Access Denied 감지 & 복구 알림 =====
+  // ===== Access Denied 감지 & 자동 복구 =====
   if (document.title.indexOf('Access Denied') > -1 || document.body.textContent.indexOf('Access Denied') > -1) {
     console.log('[소싱] Access Denied 감지 - 1분마다 복구 확인');
+    // 서버에 차단 상태 전송
+    sendProgress({ active: true, blocked: true, step: 'Access Denied - 복구 대기중', blockedAt: new Date().toISOString() });
     var checkUrl = '/np/categories/184791';
+    var checkCount = 0;
     var checkInterval = setInterval(function () {
-      fetch(checkUrl, { method: 'HEAD' }).then(function (resp) {
-        if (resp.ok) {
+      checkCount++;
+      sendProgress({ active: true, blocked: true, step: 'Access Denied - 복구 대기중 (' + checkCount + '분 경과)', blockedAt: new Date().toISOString() });
+      fetch(checkUrl).then(function (resp) {
+        return resp.text();
+      }).then(function (html) {
+        if (html.indexOf('Access Denied') === -1 && html.length > 1000) {
           clearInterval(checkInterval);
-          showFloat('차단 해제됨! 페이지를 새로고침하세요.', '#00b894', true);
+          sendProgress({ active: true, blocked: false, step: '차단 해제! 수집 재개중...' });
           if (Notification.permission === 'granted') {
-            new Notification('쿠팡 차단 해제!', { body: '다시 수집할 수 있습니다.' });
+            new Notification('쿠팡 차단 해제!', { body: '수집을 자동 재개합니다.' });
           }
-          alert('쿠팡 차단이 해제되었습니다! 페이지를 새로고침하세요.');
+          // 자동수집 상태가 남아있으면 이어서 수집
+          var st = JSON.parse(sessionStorage.getItem(K) || 'null');
+          if (st && st.running) {
+            var cats = st.cats || [];
+            var cat = cats[st.ci];
+            if (cat) {
+              console.log('[소싱] 차단 해제 - 자동 재개: ' + cat.n + ' p' + st.pg);
+              setTimeout(function () {
+                location.href = '/np/categories/' + cat.id + '?page=' + st.pg + '&listSize=60&sorter=bestAsc&channel=user';
+              }, randInt(3000, 5000));
+              return;
+            }
+          }
+          // 자동수집 상태 없으면 그냥 알림
+          showFloat('차단 해제됨! 페이지를 새로고침하세요.', '#00b894', true);
         }
       }).catch(function () {});
     }, 60000);
-    // 알림 권한 요청
     if (Notification.permission === 'default') Notification.requestPermission();
     showFloat('Access Denied - 1분마다 복구 확인중...', '#ff7675', true);
+    return; // 나머지 로직 실행 안 함
   }
 
   function showFloat(msg, color, persistent) {

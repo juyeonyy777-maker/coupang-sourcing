@@ -307,12 +307,24 @@
         const card = document.getElementById('progressCard');
         if (p && p.active) {
           card.style.display = 'block';
-          document.getElementById('progCategory').textContent = p.category || '';
-          document.getElementById('progStep').textContent = p.step || '';
-          const catProg = ((p.categoryIndex - 1) * p.pageTotal + p.page) / (p.categoryTotal * p.pageTotal) * 100;
-          document.getElementById('progBar').style.width = Math.min(catProg, 100) + '%';
-          document.getElementById('progDetail').textContent = '카테고리 ' + p.categoryIndex + '/' + p.categoryTotal + ' · 페이지 ' + p.page + '/' + p.pageTotal;
-          document.getElementById('progPercent').textContent = Math.round(catProg) + '%';
+          if (p.blocked) {
+            document.getElementById('progCategory').textContent = '';
+            document.getElementById('progStep').textContent = p.step || 'Access Denied';
+            document.getElementById('progStep').style.color = '#ff7675';
+            document.getElementById('progBar').style.width = '100%';
+            document.getElementById('progBar').style.background = 'linear-gradient(90deg,#d63031,#ff7675)';
+            document.getElementById('progDetail').textContent = '쿠팡 차단됨 - 자동 복구 대기중';
+            document.getElementById('progPercent').textContent = '';
+          } else {
+            document.getElementById('progStep').style.color = '#fdcb6e';
+            document.getElementById('progBar').style.background = 'linear-gradient(90deg,#0984e3,#6c5ce7)';
+            document.getElementById('progCategory').textContent = p.category || '';
+            document.getElementById('progStep').textContent = p.step || '';
+            const catProg = ((p.categoryIndex - 1) * p.pageTotal + p.page) / (p.categoryTotal * p.pageTotal) * 100;
+            document.getElementById('progBar').style.width = Math.min(catProg, 100) + '%';
+            document.getElementById('progDetail').textContent = '카테고리 ' + p.categoryIndex + '/' + p.categoryTotal + ' · 페이지 ' + p.page + '/' + p.pageTotal;
+            document.getElementById('progPercent').textContent = Math.round(catProg) + '%';
+          }
         } else {
           card.style.display = 'none';
         }
