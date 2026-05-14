@@ -25,6 +25,12 @@ setInterval(() => {
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+// 요청 로깅
+app.use((req, res, next) => {
+  console.log(`  [${new Date().toLocaleTimeString()}] ${req.method} ${req.url}`);
+  next();
+});
+
 // CORS (익스텐션에서 전송 허용)
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
